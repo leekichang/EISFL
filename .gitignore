@@ -9,6 +9,7 @@ __pycache__/
 test_jin/
 figure/
 EXPFL/
+tensorboard/
 
 # Distribution / packaging
 .Python
