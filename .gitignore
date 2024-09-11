@@ -10,6 +10,7 @@ test_jin/
 figure/
 EXPFL/
 tensorboard/
+backup/
 
 # Distribution / packaging
 .Python
