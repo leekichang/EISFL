@@ -11,6 +11,7 @@ figure/
 EXPFL/
 tensorboard/
 backup/
+results/
 
 # Distribution / packaging
 .Python
