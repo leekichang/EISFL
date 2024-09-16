@@ -12,6 +12,7 @@ EXPFL/
 tensorboard/
 backup/
 results/
+nohup.out
 
 # Distribution / packaging
 .Python
