@@ -10,6 +10,7 @@ test_jin/
 figure/
 EXPFL/
 tensorboard/
+tensorboard_MNIST/
 backup/
 results/
 scripts/
