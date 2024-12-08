@@ -25,28 +25,27 @@ EPS                    = 1e-8
 class FLDetector(object):
     def __init__(self,
                  args,
-                 atk_args,
                  window_size=5,
                  num_sample=5,
-                 max_cluster=10
+                 max_cluster=10,
+                 debug_mode=False,
                  ):
         """
         Weight          : Model parameter. Concatenated as a column vector.
         Update          : Model gradient. Calculated by subtraction of weights and division by learning rate.
 
         LBFGS - Predict Hessian matrix for gradient update
-        global_weights  : Global model parameter history per round (# Param x 1)
-        global_updates  : Global model parameter update history per round
-        window_size     : Storage capacity for calculation
+        - global_weights  : Global model parameter history per round (# Param)
+        - global_updates  : Global model parameter update history per round
+        - window_size     : Storage capacity for calculation
 
         Gap Statistics, Detection
-        local_weights   : Local model parameter history per round, per client (# Param x # Client)
-        local_updates   : Local model parameter update history per round, per client
+        - local_weights   : Local model parameter history per round, per client (# Param x # Client)
+        - local_updates   : Local model parameter update history per round, per client
         """
         assert window_size > 1
 
         self.args                   = args
-        self.atk_args               = atk_args
 
         self.iterations             = args.epochs
         self.window_size            = window_size
@@ -65,7 +64,7 @@ class FLDetector(object):
         self.curr_weight_diff       = None
 
         self.pred_Ht_v              = None
-        self.debug_mode             = False
+        self.debug_mode             = debug_mode
 
     def show_status(self):
         """
@@ -96,9 +95,20 @@ class FLDetector(object):
     # Compute predicted Hessian matrix H_hat
     def lbfgs(self, iter):
         """
-        Input : Global Weight Diff List(Wt: t-N ~ t-1), Global Weight "Update" Diff List(Gt: t-N ~ t-1),
-                Global Weight Diff (v = wt - wt-1), Window Size (N)
-        Output: Hessian vector product H_hat * v
+        [L-BFGS Algorithm]
+        Compute predicted Hessian matrix(H_hat) multiplied by global weight diff(v).
+        Weight diff vector size (Wt, Gt) will be the window size up to the given iteration.
+        Output will be the update by being added to local gradient g_hat_i^(t-1).
+        This will be used for "predicted" local gradient g_hat_i^t.
+
+        Annotation
+        - Global Weight Diff List             (Wt: t-N ~ t-1),
+        - Global Weight "Update" Diff List    (Gt: t-N ~ t-1),
+        - Global Weight Diff                  (v = wt - wt-1),
+        - Window Size                         (N)
+
+        Input : Iteration order         (iter)
+        Output: Hessian vector product  (H_hat * v)
         """
         # iter(t) -> iter-N ~ iter-1
         self.global_weights_diff = []
@@ -115,18 +125,24 @@ class FLDetector(object):
         self.curr_weight_diff = self.global_weights[iter] - self.global_weights[iter-1]
         self.curr_weight_diff = self.curr_weight_diff.to(self.args.device)
 
+        # Current Weight(W) & Gradient(G)
         curr_weight = torch.cat(self.global_weights_diff, dim=1).to(self.args.device)
         curr_grad = torch.cat(self.global_updates_diff, dim=1).to(self.args.device)
+
         weight_grad = torch.matmul(curr_weight.T, curr_grad)
         weight_weight = torch.matmul(curr_weight.T, curr_weight)
+        
         R_k = np.triu(weight_grad.cpu().detach())
         L_k = weight_grad - torch.tensor(R_k, device=self.args.device)
         D_k_diag = torch.diag(weight_grad)
+        
         sigma_k = torch.matmul(self.global_updates_diff[-1].T, self.global_weights_diff[-1]) \
                   / (torch.matmul(self.global_weights_diff[-1].T, self.global_weights_diff[-1]))
         sigma_k = sigma_k.to(self.args.device)
+        
         upper_mat = torch.cat([sigma_k * weight_weight, L_k], dim=1)
         lower_mat = torch.cat([L_k.T, -torch.diag(D_k_diag)], dim=1)
+        
         mat = torch.cat([upper_mat, lower_mat], dim=0)
         mat_inv = torch.linalg.inv(mat)
 
@@ -137,7 +153,39 @@ class FLDetector(object):
         return approx_prod
     
     # Gap statistics
+    def byz_score_calc(self):
+        # round = len(self.global_weights) - 1
+        client_update_losses = []
+        for iter in range(1, self.round+1):
+            pred_Ht_v = self.lbfgs(iter)
+
+            # Predict global model "update" (gradient) per client for this iteration
+            client_update_loss = []
+            for client in range(self.args.n_user):
+                g_hat = self.local_updates[max(iter-1, 0)][:, client].unsqueeze(1).to(self.args.device) - pred_Ht_v
+                client_update_loss.append(torch.norm(g_hat - self.local_updates[iter][:, client].unsqueeze(1).to(self.args.device), p=2).unsqueeze(0))
+            client_update_loss = torch.cat(client_update_loss, dim=0)
+
+            l1norm = torch.norm(client_update_loss, p=1)
+            client_update_loss /= l1norm
+            client_update_losses.append(client_update_loss)
+            byz_scores = torch.mean(torch.stack(client_update_losses[max(iter-self.window_size+1, 0):iter+1]), dim=0)
+            
+            if self.debug_mode:
+                print(f"Iteration {iter} Suspicious Scores")
+                print(byz_scores)
+
+            return byz_scores
+
+
     def gap_stat(self, byz_scores):
+        """
+        Gap Statistics Algorithm
+        Compute predicted Hessian matrix(H_hat)
+
+        Input : Byzantine suspicious scores (byz_scores)
+        Output: Optimal number of client clusters
+        """
         def gap_func(ref_list, byz_sum):
             byz_sum = EPS if byz_sum == 0 else byz_sum
             return np.log(np.mean(ref_list)) - np.log(byz_sum)
@@ -178,16 +226,16 @@ class FLDetector(object):
 
         return np.argmin(stat_list) + 1
 
-    """
-    FLDetector
-    : Calculate suspicious scores based on predicted vs actual gradients
-      and k-means cluster to distinguish benign vs byzantine worker clusters
-    
-    Outputs
-    - List of malicious(byzantine) client indices or None
-    """
 
     def detect_fl(self):
+        """
+        FLDetector
+        : Calculate suspicious scores based on predicted vs actual gradients
+        and k-means cluster to distinguish benign vs byzantine worker clusters
+        
+        Input:  None
+        Output: List of malicious(byzantine) client indices
+        """
         adversary_list = []
         if self.round == 0:
             print(f"Adversary Not Found")
@@ -212,14 +260,19 @@ class FLDetector(object):
             l1norm = torch.norm(client_update_loss, p=1)
             client_update_loss /= l1norm
             client_update_losses.append(client_update_loss)
-            print(f"d_t: {len(client_update_losses)}")
             byz_scores = torch.mean(torch.stack(client_update_losses[max(iter-self.window_size+1, 0):iter+1]), dim=0)
-            print(byz_scores)
+            
+            if self.debug_mode:
+                print(f"d_t: {len(client_update_losses)}")
+                print(byz_scores)
 
             # Get optimal number of clusters via gap statistics
-            print(f"Iteration {iter}")
             optnum_cluster = self.gap_stat(byz_scores)
-            print(f"Optimal Cluster Number: {optnum_cluster}")
+
+            if self.debug_mode:
+                print(f"Iteration {iter}")
+                print(f"Optimal Cluster Number: {optnum_cluster}")
+            
             # If optimal number is greater than 1 (distinct clustering possible)
             if optnum_cluster > 1:
                 byz_scores = byz_scores.cpu().detach().numpy().reshape(-1, 1)
@@ -238,7 +291,9 @@ class FLDetector(object):
                         adversary_list = prev_adv_list
                     else:
                         prev_adv_list = adversary_list
-                    print(f"Adversary IDs: {adversary_list}")
+
+                    if self.debug_mode:
+                        print(f"Adversary IDs: {adversary_list}")
                     # return adversary_list
                     
         print(f"Final Adversary List: {adversary_list}")

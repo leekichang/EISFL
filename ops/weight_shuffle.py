@@ -9,13 +9,16 @@ __all__ = [
 
 class WeightShuffle(object):
     def __init__(self, weight, patch_size, patch_shuffle, pixel_shuffle):
-        self.new_weight    = copy.deepcopy(weight)
-        self.patch_size    = patch_size
-        self.patch_shuffle = patch_shuffle
+        self.new_weight    = copy.deepcopy(weight) # 셔플할 모델의 파라미터
+        self.patch_size    = patch_size            # 이미지를 나눌 패치의 크기
+        self.patch_shuffle = patch_shuffle         # 
         self.pixel_shuffle = pixel_shuffle
         # self.pixel_unshuffle_info = torch.argsort(self.patch_info)
         # self.patch_unshuffle_info = torch.argsort(self.pixel_info)
     
+    def set_new_weight(self, weight):
+        self.new_weight = copy.deepcopy(weight)
+
     def shuffleConv2d(self, conv_weight):
         pixel_unshuffler = ops.ImageShuffle(patch_size=(self.patch_size, self.patch_size),
                               patch_shuffle=None,
@@ -23,7 +26,18 @@ class WeightShuffle(object):
         weight_shuffled = pixel_unshuffler(conv_weight)
         return weight_shuffled
     
-    def shuffle(self, model='mixer'):
+    def unshuffle(self, model='MLP'):
+        self.patch_shuffle = torch.argsort(self.patch_shuffle) if self.patch_shuffle is not None else None
+        self.pixel_shuffle = torch.argsort(self.pixel_shuffle) if self.pixel_shuffle is not None else None
+        return self.shuffle(model=model)
+
+    def shuffle(self, model='MLP'):
+        if model == 'MLP':
+            if self.pixel_shuffle != None:
+                param = copy.deepcopy(self.new_weight['fc1.fc.weight'].clone())
+                shuffle_param = copy.deepcopy(param[:, self.pixel_shuffle])
+                self.new_weight['fc1.fc.weight'] = shuffle_param
+            return self.new_weight
         # Pixel Unshuffling
         if self.pixel_shuffle != None:
             conv_weight = self.new_weight['patch_embedding.embedding.0.weight'].clone()
@@ -47,6 +61,7 @@ class WeightShuffle(object):
                     param = self.new_weight[f'mixer_blocks.{i}.token_mixer.2.net.3.bias'].clone()
                     shuffle_param = param[self.patch_shuffle]
                     self.new_weight[f'mixer_blocks.{i}.token_mixer.2.net.3.bias'] = shuffle_param
+                return self.new_weight
             elif 'vit' in model:
                 if self.new_weight['fc.weight'].shape[1] == 8192:
                     stride = 128

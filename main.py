@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import torch.autograd as autograd
 import torch.multiprocessing as mp
+import torch.utils.tensorboard as tb
 
 import utils
 from client import *

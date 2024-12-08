@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from models import nnops
-# from models import nnops
+# import nnops
 
 __all__ = ["mixer"]
 
@@ -47,16 +47,14 @@ MLP Mixer
 https://arxiv.org/abs/2105.01601
 '''
 class mixer(nn.Module):
-    def __init__(self,
-                 cfg):
+    def __init__(self, n_class=10):
         super().__init__()
-        image_size  = cfg['image_size']
-        patch_size  = cfg['patch_size']
-        dim         = cfg['dim']
-        num_layers  = cfg['num_layers']
-        token_dim   = cfg['token_dim']
-        channel_dim = cfg['channel_dim']
-        num_class   = cfg['num_class']
+        image_size  = 32 # cfg['image_size']
+        patch_size  = 4  # cfg['patch_size']
+        dim         = 256 # cfg['dim']
+        num_layers  = 4 # ['num_layers']
+        token_dim   = 128 # ['token_dim']
+        channel_dim = 128 # ['channel_dim']
         
         assert image_size % patch_size == 0, "Image dimensions must be divisible by the patch size."
         self.num_patch = (image_size//patch_size)**2
@@ -68,20 +66,26 @@ class mixer(nn.Module):
 
         self.layer_norm = nn.LayerNorm(dim)
         self.classifier = nn.Linear(in_features=dim,
-                                    out_features=num_class)
+                                    out_features=n_class)
     
     def forward(self, x):
+        # print(f'1: {x.shape}')
         x = self.patch_embedding(x)
-        for mixer_block in self.mixer_blocks:
+        # print(f'2: {x.shape}')
+        for bidx, mixer_block in enumerate(self.mixer_blocks):
             x = mixer_block(x)
+            # print(f'{bidx+3}: {x.shape}')
         x = self.layer_norm(x)
+        # print(f'7: {x.shape}')
         x = x.mean(dim=1)
+        # print(f'8: {x.shape}')
         x = self.classifier(x)
+        # print(f'9: {x.shape}')
         return x
 
 if __name__ == '__main__':
     from torchsummary import summary
-    model = mixer(dim=256, patch_size=4, num_class=10).to('cuda')
+    model = mixer().to('cuda')
     summary(model, (3,32,32))
     total_params = sum(p.numel() for p in model.parameters())
     print(f'# Total parmas: {total_params:,}')

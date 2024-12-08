@@ -5,6 +5,7 @@ Created on Thu Aug 28 2023
 """
 
 import os
+import torch
 import matplotlib.pyplot as plt
 
 __all__ = [
@@ -15,7 +16,7 @@ class Attacker(object):
     def __init__(self, args):
         self.args       = args
         self.name       = args.attack_name
-        self.device     = args.device
+        self.device     = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.loss_trace = []
         self.history    = []
         

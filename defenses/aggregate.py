@@ -77,7 +77,9 @@ class Aggregator(object):
             aggregated_params = self.median(cat_client_param)
             aggregated_params = aggregated_params.reshape(-1, 1)
         elif method == "krum":
-            aggregated_params = 
+            raise NotImplementedError
+            #TODO?: Update this
+            #aggregated_params = 
 
         averaged_weights = OrderedDict()
         start = 0
