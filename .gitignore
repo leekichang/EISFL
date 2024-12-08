@@ -11,6 +11,7 @@ figure/
 EXPFL/
 checkpoints/
 tensorboard/
+tensorboard_backup/
 tensorboard_MNIST/
 tensorboard_cifar10/
 tensorboard_MITBIH/
