@@ -9,10 +9,15 @@ __pycache__/
 test_jin/
 figure/
 EXPFL/
+*.ipynb
+rnn_test.py
 checkpoints/
 tensorboard/
+embedded/
 tensorboard_backup/
+tensorboard_noise/
 tensorboard_MNIST/
+tensorboard_MNIST_/
 tensorboard_cifar10/
 tensorboard_MITBIH/
 backup/
