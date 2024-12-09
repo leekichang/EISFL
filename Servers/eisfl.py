@@ -26,6 +26,7 @@ class EISFLServer(BaseServer):
         self.cluster_history = -1*np.ones((self.n_clients, args.rounds))
         self.p_acc_history   = np.zeros((self.n_clients, args.rounds))
         self.user_sim        = torch.diag_embed(torch.ones(self.n_clients)).numpy()
+        self.max_th  = -1
 
     def unshuffle_weight(self):
         '''
@@ -283,8 +284,11 @@ class EISFLServer(BaseServer):
                     # if args.atk_type == 'Backdoor':
                     #     self.backdoor_test(round)
                     # print('#'*10)
+            self.max_th = max(self.max_th, threshold)
+
             if len(self.global_models.keys()) >= 21:
-                threshold = min(0.85, threshold*0.99)
+                threshold = self.max_th
+                self.max_th -= 0.0001
             else:
                 threshold = min(0.85, threshold * 1.015)
             self.tb_update(round+1, threshold=threshold)
